@@ -1,5 +1,4 @@
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException
-import os
 from datetime import datetime
 
 router = APIRouter(prefix="/api/smart-office", tags=["smart-office"])
@@ -8,20 +7,23 @@ router = APIRouter(prefix="/api/smart-office", tags=["smart-office"])
 @router.post("/documents/upload")
 async def upload_document(file: UploadFile = File(...)):
     try:
-        return {"filename": file.filename, "status": "uploaded"}
+        contents = await file.read()
+        return {"filename": file.filename, "size": len(contents), "status": "uploaded"}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/documents/analyze")
 async def analyze_document(file: UploadFile = File(...), report_type: str = Form(...)):
     try:
-        return {
-            "report": f"Generated {report_type} report for {file.filename}",
-            "report_type": report_type,
-            "filename": file.filename
-        }
+        contents = await file.read()
+        report = f"# {report_type.upper()}\n\nGenerated for: {file.filename}\n\nThis is a sample report."
+        return {"report": report, "report_type": report_type, "filename": file.filename}
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+@router.get("/documents")
+async def list_documents():
+    return {"documents": [], "total": 0}
 
 # Excel
 @router.post("/excel/load")
@@ -30,7 +32,7 @@ async def load_excel(file: UploadFile = File(...)):
 
 @router.post("/excel/query")
 async def query_excel(query: str = Form(...)):
-    return {"response": f"Analysis for: {query}", "confidence": 0.95}
+    return {"response": f"Query result: {query}"}
 
 # Translate
 @router.post("/translate")
@@ -40,12 +42,20 @@ async def translate(text: str = Form(...), target_lang: str = Form(...)):
 # Transcribe
 @router.post("/transcribe")
 async def transcribe(file: UploadFile = File(...)):
-    return {"transcription": "Sample transcription text", "filename": file.filename}
+    try:
+        contents = await file.read()
+        return {"transcription": "Sample transcription", "filename": file.filename}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # Smart Files
 @router.post("/files/upload")
 async def upload_file(file: UploadFile = File(...)):
-    return {"file_id": f"file_{datetime.now().timestamp()}", "filename": file.filename}
+    try:
+        contents = await file.read()
+        return {"file_id": f"file_{datetime.now().timestamp()}", "filename": file.filename}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @router.post("/files/chat")
 async def chat(message: str = Form(...)):
