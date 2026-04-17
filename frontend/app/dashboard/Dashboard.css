@@ -12,18 +12,27 @@
 }
 
 .hub-card {
+  display: block;
   background: #ffffff;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
   padding: 16px;
+  text-decoration: none;
+  color: inherit;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.hub-card:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 4px 12px rgba(2, 6, 23, 0.08);
 }
 
 .credits-display {
-  margin-top: 16px;
-  padding: 12px 16px;
+  padding: 8px 14px;
   border-radius: 12px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
+  font-size: 14px;
 }
 
 .notifications {
@@ -41,20 +50,15 @@
   cursor: pointer;
 }
 
-.user-menu {
-  position: fixed;
-  top: 16px;
-  right: 72px;
-}
-
 .user-menu-button {
   border: 1px solid #e2e8f0;
   background: white;
   border-radius: 12px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   cursor: pointer;
+  font-size: 14px;
 }
 
-.dropdown-menu {
-  display: none;
+.user-menu-button:hover {
+  background: #f8fafc;
 }
