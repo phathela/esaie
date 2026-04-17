@@ -4,25 +4,20 @@ from contextlib import asynccontextmanager
 import os
 from motor.motor_asyncio import AsyncIOMotorClient
 from dotenv import load_dotenv
+import database
 
 load_dotenv()
 
 MONGO_URL = os.getenv("MONGO_URL", "mongodb://localhost:27017")
 DB_NAME = os.getenv("DB_NAME", "ai_support_base")
 
-db_client: AsyncIOMotorClient = None
-
-def get_db():
-    return db_client[DB_NAME]
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global db_client
-    db_client = AsyncIOMotorClient(MONGO_URL)
-    app.state.db = db_client[DB_NAME]
+    client = AsyncIOMotorClient(MONGO_URL)
+    database.set_client(client)
     print("✅ ESAIE Server Starting — MongoDB connected")
     yield
-    db_client.close()
+    client.close()
     print("🛑 ESAIE Server Shutting Down")
 
 app = FastAPI(
