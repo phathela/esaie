@@ -1,197 +1,114 @@
 'use client';
-
-import React, { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import './Dashboard.css';
+import { useAuth } from '@/context/AuthContext';
 
-type HubCardProps = {
-  title: string;
-  description: string;
-  href: string;
-  badge?: string;
-};
+const HUBS = [
+  { title: 'Smart Office', desc: 'Documents, Excel insights, translate, transcribe, smart files.', href: '/smart-office/documents', color: 'rose', icon: '🗂️' },
+  { title: 'Comms Centre', desc: 'Chat, groups, meetings, tasks, calls, AI pals.', href: '/comms-centre/chat', color: 'violet', icon: '💬' },
+  { title: 'Human Centre', desc: 'Organogram, positions, members, performance.', href: '/hr-hub/human-centre', color: 'emerald', icon: '👥' },
+  { title: 'Monitoring Centre', desc: 'Live cameras, AI analytics, LPR, alerts.', href: '/monitoring-centre', color: 'red', icon: '📹' },
+  { title: 'Learning Centre', desc: 'Courses, modules, progress tracking.', href: '/learning', color: 'amber', icon: '📚' },
+  { title: 'Innovation Centre', desc: 'Submit ideas, track pipeline, innovation bot.', href: '/innovation-centre', color: 'purple', icon: '💡' },
+  { title: 'Knowledge Hub', desc: 'SOPs, forms, templates, document repository.', href: '/knowledge', color: 'cyan', icon: '🧠' },
+  { title: 'Alerts Hub', desc: 'Breaking news, weather, traffic, security alerts.', href: '/alerts', color: 'blue', icon: '🔔' },
+  { title: 'Rewards Centre', desc: 'Aipps balance, competitions, offers, history.', href: '/rewards', color: 'amber', icon: '🏆' },
+];
 
-const HubCard = ({ title, description, href, badge }: HubCardProps) => {
-  return (
-    <Link href={href} className="hub-card">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-        <h3 style={{ margin: 0 }}>{title}</h3>
-        {badge ? (
-          <span
-            style={{
-              fontSize: 12,
-              padding: '2px 8px',
-              borderRadius: 9999,
-              border: '1px solid #e2e8f0',
-              background: '#f8fafc',
-              color: '#0f172a',
-              whiteSpace: 'nowrap'
-            }}
-          >
-            {badge}
-          </span>
-        ) : null}
-      </div>
-      <p style={{ marginTop: 8, marginBottom: 0, color: '#475569' }}>{description}</p>
-    </Link>
-  );
+const COLOR_MAP: Record<string, string> = {
+  rose: 'border-rose-200 hover:border-rose-400',
+  violet: 'border-violet-200 hover:border-violet-400',
+  emerald: 'border-emerald-200 hover:border-emerald-400',
+  red: 'border-red-200 hover:border-red-400',
+  amber: 'border-amber-200 hover:border-amber-400',
+  purple: 'border-purple-200 hover:border-purple-400',
+  cyan: 'border-cyan-200 hover:border-cyan-400',
+  blue: 'border-blue-200 hover:border-blue-400',
 };
 
 export default function DashboardPage() {
-  // Mock user state (replace later with real AuthContext if you have it)
-  const [credits] = useState<number>(100);
-  const [showMenu, setShowMenu] = useState<boolean>(false);
+  const { user, loading, logout } = useAuth();
+  const router = useRouter();
+  const [showMenu, setShowMenu] = useState(false);
 
-  const hubs = useMemo(
-    () => [
-      {
-        title: 'Smart Office',
-        description: 'Documents, Excel insights, translate, transcribe, smart files.',
-        href: '/smart-office/documents',
-        badge: 'Phase 4'
-      },
-      {
-        title: 'Comms Centre',
-        description: 'Chat, groups, meetings, tasks, calls.',
-        href: '/comms-centre/chat',
-        badge: 'Phase 5'
-      },
-      {
-        title: 'Security',
-        description: 'Access controls, audit trail, and security settings.',
-        href: '/security',
-        badge: 'Soon'
-      },
-      {
-        title: 'AI Assist',
-        description: 'General assistant, workflows, and automations.',
-        href: '/ai-assist',
-        badge: 'Soon'
-      },
-      {
-        title: 'Analytics',
-        description: 'Usage, performance, and reporting dashboards.',
-        href: '/analytics',
-        badge: 'Soon'
-      },
-      {
-        title: 'Admin',
-        description: 'Team, billing, plans, roles, and configuration.',
-        href: '/admin',
-        badge: 'Soon'
-      }
-    ],
-    []
+  useEffect(() => { if (!loading && !user) router.replace('/'); }, [user, loading, router]);
+
+  if (loading || !user) return (
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center">
+      <div className="w-8 h-8 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
+    </div>
   );
 
+  const handleLogout = () => { logout(); router.push('/'); };
+
   return (
-    <div className="dashboard">
-      {/* Top bar */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-        <div>
-          <h1 style={{ margin: 0, fontSize: 28, color: '#0f172a' }}>Dashboard</h1>
-          <p style={{ marginTop: 6, marginBottom: 0, color: '#64748b' }}>
-            Choose a hub to get started.
-          </p>
+    <div className="min-h-screen bg-slate-50">
+      {/* Header */}
+      <header className="bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between sticky top-0 z-40">
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-500 to-blue-600 flex items-center justify-center text-white font-bold">E</div>
+          <span className="text-slate-900 font-semibold text-lg">ESAIE</span>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div className="flex items-center gap-3">
           {/* Credits */}
-          <div className="credits-display">
-            <strong style={{ color: '#0f172a' }}>Credits:</strong>{' '}
-            <span style={{ color: '#0f172a' }}>{credits}</span>
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-xl text-sm">
+            <span className="text-amber-600 font-medium">{user.credits} Aipps</span>
+            <span className="text-slate-400">|</span>
+            <button className="text-amber-600 font-medium hover:text-amber-700 text-xs">Buy</button>
           </div>
 
-          {/* User Menu */}
-          <div className="user-menu" style={{ position: 'relative' }}>
-            <button
-              type="button"
-              className="user-menu-button"
-              onClick={() => setShowMenu((v) => !v)}
-              aria-haspopup="menu"
-              aria-expanded={showMenu}
-            >
-              phathela ▾
+          {/* Notifications */}
+          <button className="relative w-9 h-9 flex items-center justify-center rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-colors text-slate-600">
+            🔔
+          </button>
+
+          {/* User menu */}
+          <div className="relative">
+            <button onClick={() => setShowMenu(v => !v)}
+              className="flex items-center gap-2 px-3 py-1.5 border border-slate-200 rounded-xl bg-white hover:bg-slate-50 transition-colors text-sm font-medium text-slate-700">
+              <div className="w-6 h-6 rounded-full bg-violet-100 flex items-center justify-center text-violet-700 text-xs font-bold">
+                {user.name.charAt(0).toUpperCase()}
+              </div>
+              {user.username}
+              <span className="text-slate-400 text-xs">▾</span>
             </button>
 
-            {showMenu ? (
-              <div
-                role="menu"
-                style={{
-                  position: 'absolute',
-                  right: 0,
-                  top: 'calc(100% + 8px)',
-                  width: 220,
-                  border: '1px solid #e2e8f0',
-                  borderRadius: 12,
-                  background: '#ffffff',
-                  boxShadow: '0 10px 30px rgba(2, 6, 23, 0.12)',
-                  overflow: 'hidden',
-                  zIndex: 50
-                }}
-              >
-                <Link
-                  href="/profile"
-                  role="menuitem"
-                  style={{ display: 'block', padding: 12, color: '#0f172a', textDecoration: 'none' }}
-                  onClick={() => setShowMenu(false)}
-                >
-                  Profile
-                </Link>
-                <Link
-                  href="/settings"
-                  role="menuitem"
-                  style={{ display: 'block', padding: 12, color: '#0f172a', textDecoration: 'none' }}
-                  onClick={() => setShowMenu(false)}
-                >
-                  Settings
-                </Link>
-                <div style={{ height: 1, background: '#e2e8f0' }} />
-                <button
-                  type="button"
-                  role="menuitem"
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    padding: 12,
-                    textAlign: 'left',
-                    background: 'transparent',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: '#b91c1c'
-                  }}
-                  onClick={() => {
-                    setShowMenu(false);
-                    // Replace with real logout
-                    alert('Logout placeholder');
-                  }}
-                >
-                  Logout
+            {showMenu && (
+              <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-slate-200 rounded-xl shadow-lg overflow-hidden z-50">
+                <div className="px-4 py-3 border-b border-slate-100">
+                  <p className="text-sm font-medium text-slate-900">{user.name}</p>
+                  <p className="text-xs text-slate-500">{user.email}</p>
+                </div>
+                <button onClick={handleLogout} className="w-full px-4 py-3 text-left text-sm text-red-600 hover:bg-red-50 transition-colors">
+                  Sign Out
                 </button>
               </div>
-            ) : null}
+            )}
           </div>
         </div>
-      </div>
+      </header>
 
-      {/* Hub cards */}
-      <div className="hub-cards" style={{ marginTop: 20 }}>
-        {hubs.map((hub) => (
-          <HubCard
-            key={hub.title}
-            title={hub.title}
-            description={hub.description}
-            href={hub.href}
-            badge={hub.badge}
-          />
-        ))}
-      </div>
+      {/* Main */}
+      <main className="max-w-6xl mx-auto px-6 py-10">
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold text-slate-900">Welcome back, {user.name.split(' ')[0]}</h1>
+          <p className="text-slate-500 mt-1">Choose a hub to get started.</p>
+        </div>
 
-      {/* Helpful note */}
-      <div style={{ marginTop: 20, color: '#64748b', fontSize: 14 }}>
-        Backend API is deployed separately (Railway service on port 8001). The frontend calls it via{' '}
-        <code>NEXT_PUBLIC_API_URL</code>.
-      </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {HUBS.map(hub => (
+            <Link key={hub.title} href={hub.href}
+              className={`block bg-white border-2 ${COLOR_MAP[hub.color]} rounded-2xl p-6 transition-all hover:shadow-md group`}
+              onClick={() => setShowMenu(false)}>
+              <div className="text-3xl mb-3">{hub.icon}</div>
+              <h3 className="text-base font-semibold text-slate-900 mb-1 group-hover:text-violet-700 transition-colors">{hub.title}</h3>
+              <p className="text-sm text-slate-500 leading-relaxed">{hub.desc}</p>
+            </Link>
+          ))}
+        </div>
+      </main>
     </div>
   );
 }

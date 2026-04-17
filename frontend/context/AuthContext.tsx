@@ -1,69 +1,83 @@
-import React, { createContext, useState, useEffect, ReactNode } from 'react';
+'use client';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import axios from 'axios';
 
-interface AuthContextType {
-    user: any; // Define your user type
-    login: (credentials: { username: string; password: string }) => Promise<void>;
-    register: (userDetails: { username: string; password: string }) => Promise<void>;
-    logout: () => void;
-    isLoggedIn: boolean;
+const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+
+interface User {
+  user_id: string;
+  email: string;
+  username: string;
+  name: string;
+  picture?: string;
+  role: string;
+  country: string;
+  default_language: string;
+  credits: number;
 }
 
-export const AuthContext = createContext<AuthContextType | undefined>(undefined);
+interface AuthCtx {
+  user: User | null;
+  token: string | null;
+  loading: boolean;
+  login: (email: string, password: string) => Promise<void>;
+  register: (data: RegisterData) => Promise<void>;
+  logout: () => void;
+}
 
-export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-    const [user, setUser] = useState<any>(null);
-    const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+interface RegisterData {
+  email: string;
+  password: string;
+  name: string;
+  username: string;
+  country: string;
+}
 
-    useEffect(() => {
-        const token = localStorage.getItem('token');
-        if (token) {
-            // Logic to fetch user data using token
-            setUser({}); // Set user based on token
-            setIsLoggedIn(true);
-        }
-    }, []);
+const AuthContext = createContext<AuthCtx>({} as AuthCtx);
 
-    const login = async (credentials: { username: string; password: string }) => {
-        // Call your login API
-        const response = await fetch('/api/login', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(credentials),
-        });
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-        const data = await response.json();
-        if (data.token) {
-            localStorage.setItem('token', data.token);
-            setUser(data.user); // Adjust according to your API response
-            setIsLoggedIn(true);
-        }
-    };
+  useEffect(() => {
+    const stored = localStorage.getItem('esaie_token');
+    if (stored) {
+      setToken(stored);
+      axios.get(`${API}/api/auth/me`, { headers: { Authorization: `Bearer ${stored}` } })
+        .then(r => setUser(r.data))
+        .catch(() => { localStorage.removeItem('esaie_token'); setToken(null); })
+        .finally(() => setLoading(false));
+    } else {
+      setLoading(false);
+    }
+  }, []);
 
-    const register = async (userDetails: { username: string; password: string }) => {
-        // Call your register API
-        const response = await fetch('/api/register', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(userDetails),
-        });
+  const login = async (email: string, password: string) => {
+    const r = await axios.post(`${API}/api/auth/login`, { email, password });
+    localStorage.setItem('esaie_token', r.data.token);
+    setToken(r.data.token);
+    setUser(r.data.user);
+  };
 
-        const data = await response.json();
-        // Handle registration response, perhaps log the user in
-    };
+  const register = async (data: RegisterData) => {
+    const r = await axios.post(`${API}/api/auth/register`, data);
+    localStorage.setItem('esaie_token', r.data.token);
+    setToken(r.data.token);
+    setUser(r.data.user);
+  };
 
-    const logout = () => {
-        localStorage.removeItem('token');
-        setUser(null);
-        setIsLoggedIn(false);
-    };
+  const logout = () => {
+    localStorage.removeItem('esaie_token');
+    setToken(null);
+    setUser(null);
+  };
 
-    return (
-        <AuthContext.Provider value={{ user, login, register, logout, isLoggedIn }}>
-            {children}
-        </AuthContext.Provider>
-    );
-};
+  return (
+    <AuthContext.Provider value={{ user, token, loading, login, register, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+export const useAuth = () => useContext(AuthContext);
