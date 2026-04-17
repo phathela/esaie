@@ -57,14 +57,14 @@ export default function LandingPage() {
 
   const doLogin = async (e: React.FormEvent) => {
     e.preventDefault(); setError(''); setBusy(true);
-    try { await login(loginEmail, loginPass); router.push('/dashboard'); }
+    try { await login(loginEmail, loginPass); }
     catch (err: any) { setError(err?.response?.data?.detail || 'Login failed'); }
     finally { setBusy(false); }
   };
 
   const doRegister = async (e: React.FormEvent) => {
     e.preventDefault(); setError(''); setBusy(true);
-    try { await register({ email: regEmail, password: regPass, name: regName, username: regUser, country: regCountry }); router.push('/dashboard'); }
+    try { await register({ email: regEmail, password: regPass, name: regName, username: regUser, country: regCountry }); }
     catch (err: any) { setError(err?.response?.data?.detail || 'Registration failed'); }
     finally { setBusy(false); }
   };
