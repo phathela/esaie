@@ -12,4 +12,6 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 # Railway will set $PORT at runtime
-CMD ["sh", "-c", "echo PORT=$PORT && echo HOSTNAME=$HOSTNAME && HOSTNAME=0.0.0.0 PORT=${PORT:-8080} node .next/standalone/server.js"]
+EXPOSE 8080
+
+CMD ["sh", "-c", "export HOSTNAME=0.0.0.0; export PORT=${PORT:-8080}; node .next/standalone/server.js"]
