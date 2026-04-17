@@ -6,7 +6,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 from datetime import datetime, timedelta
 import os, re, secrets
-from server import get_db
+from database import get_db
 
 router = APIRouter()
 security = HTTPBearer(auto_error=False)
