@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import Link from 'next/link';
 import axios from 'axios';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
@@ -28,7 +29,7 @@ export default function MeetingsPage() {
   const past = meetings.filter(m => new Date(m.scheduled_at) < new Date());
 
   return (
-    <div className="p-6 max-w-4xl">
+    <div className="p-6 max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-slate-900">Meetings</h1>
         <button onClick={() => setShowForm(!showForm)} className="px-4 py-2 bg-violet-600 text-white rounded-xl text-sm font-medium hover:bg-violet-700">+ Schedule</button>
@@ -62,15 +63,19 @@ export default function MeetingsPage() {
         <h2 className="font-semibold text-slate-700 mb-3">Upcoming ({upcoming.length})</h2>
         <div className="space-y-3">
           {upcoming.map(m => (
-            <div key={m.meeting_id} className="bg-white border border-slate-200 rounded-2xl p-5 flex items-center justify-between">
+            <Link key={m.meeting_id} href={`/comms-centre/meetings/${m.meeting_id}`}
+              className="bg-white border border-slate-200 rounded-2xl p-5 flex items-center justify-between hover:shadow-md transition-shadow group">
               <div>
-                <p className="font-semibold text-slate-800">{m.title}</p>
+                <p className="font-semibold text-slate-800 group-hover:text-violet-600">{m.title}</p>
                 <p className="text-sm text-slate-500 mt-1">{new Date(m.scheduled_at).toLocaleString()} · {m.duration_minutes} min · {m.organizer_name}</p>
                 {m.description && <p className="text-sm text-slate-600 mt-1">{m.description}</p>}
               </div>
-              <a href={m.join_link} target="_blank" rel="noreferrer"
-                className="ml-4 px-4 py-2 bg-violet-600 text-white rounded-xl text-sm font-medium hover:bg-violet-700 whitespace-nowrap">Join</a>
-            </div>
+              <div className="ml-4 flex gap-2">
+                <a href={m.join_link} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}
+                  className="px-4 py-2 bg-violet-600 text-white rounded-xl text-sm font-medium hover:bg-violet-700 whitespace-nowrap">Join</a>
+                <span className="text-violet-600">→</span>
+              </div>
+            </Link>
           ))}
           {upcoming.length === 0 && <p className="text-slate-400 text-sm">No upcoming meetings. Schedule one above.</p>}
         </div>

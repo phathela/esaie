@@ -42,6 +42,26 @@ class CreateTaskRequest(BaseModel):
 class UpdateTaskRequest(BaseModel):
     status: str
 
+class RespondToMeetingInviteRequest(BaseModel):
+    meeting_id: str
+    response: str  # accepted, declined
+
+class UploadMeetingDocumentRequest(BaseModel):
+    meeting_id: str
+    file_name: str
+    file_url: str
+
+class AddMeetingMinuteRequest(BaseModel):
+    meeting_id: str
+    content: str
+    submitted_by: str = ""
+
+class MeetingBoardItemRequest(BaseModel):
+    meeting_id: str
+    title: str
+    description: str = ""
+    status: str = "todo"  # todo, in_progress, review, done
+
 class AIPalMessageRequest(BaseModel):
     pal_id: str
     message: str
@@ -182,6 +202,8 @@ async def send_group_message(req: GroupMessageRequest, current_user: dict = Depe
 async def create_meeting(req: CreateMeetingRequest, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
     uid = current_user["user_id"]
     meeting_id = "meet_" + secrets.token_hex(6)
+    attendees = list(set([uid] + req.attendee_ids))
+    now = datetime.utcnow().isoformat()
     meeting = {
         "meeting_id": meeting_id,
         "title": req.title,
@@ -190,15 +212,29 @@ async def create_meeting(req: CreateMeetingRequest, current_user: dict = Depends
         "duration_minutes": req.duration_minutes,
         "organizer_id": uid,
         "organizer_name": current_user["name"],
-        "attendees": list(set([uid] + req.attendee_ids)),
+        "attendees": attendees,
+        "attendee_responses": {},
         "join_link": f"https://meet.jit.si/esaie-{meeting_id}",
         "status": "scheduled",
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": now,
     }
     await db.meetings.insert_one(meeting)
     meeting.pop("_id", None)
-    for att_id in req.attendee_ids:
-        await manager.send(att_id, {"type": "meeting_invite", "meeting": meeting})
+
+    # Create invites for all attendees
+    for att_id in attendees:
+        invite = {
+            "invite_id": "inv_" + secrets.token_hex(6),
+            "meeting_id": meeting_id,
+            "attendee_id": att_id,
+            "response": "pending" if att_id != uid else "accepted",
+            "responded_at": None if att_id != uid else now,
+            "created_at": now,
+        }
+        await db.meeting_invites.insert_one(invite)
+        if att_id != uid:
+            await manager.send(att_id, {"type": "meeting_invite", "meeting": meeting})
+
     return {"meeting": meeting}
 
 @router.get("/meetings")
@@ -212,6 +248,169 @@ async def get_meetings(current_user: dict = Depends(get_current_user), db: Async
 async def update_meeting_status(meeting_id: str, status: str, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
     await db.meetings.update_one({"meeting_id": meeting_id}, {"$set": {"status": status}})
     return {"ok": True}
+
+@router.get("/meetings/{meeting_id}")
+async def get_meeting_detail(meeting_id: str, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    meeting = await db.meetings.find_one({"meeting_id": meeting_id}, {"_id": 0})
+    if not meeting:
+        raise HTTPException(404, "Meeting not found")
+
+    # Get invites
+    invites = await db.meeting_invites.find({"meeting_id": meeting_id}, {"_id": 0}).to_list(100)
+
+    # Get board items
+    board_items = await db.meeting_board_items.find({"meeting_id": meeting_id}, {"_id": 0}).sort("created_at", 1).to_list(100)
+
+    # Get documents
+    docs = await db.meeting_documents.find({"meeting_id": meeting_id}, {"_id": 0}).sort("created_at", -1).to_list(50)
+
+    # Get minutes
+    minutes = await db.meeting_minutes.find({"meeting_id": meeting_id}, {"_id": 0}).sort("created_at", 1).to_list(100)
+
+    meeting["invites"] = invites
+    meeting["board_items"] = board_items
+    meeting["documents"] = docs
+    meeting["minutes"] = minutes
+
+    return {"meeting": meeting}
+
+@router.post("/meetings/{meeting_id}/invites/respond")
+async def respond_to_meeting_invite(meeting_id: str, req: RespondToMeetingInviteRequest, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    uid = current_user["user_id"]
+    invite = await db.meeting_invites.find_one({"meeting_id": meeting_id, "attendee_id": uid})
+    if not invite:
+        raise HTTPException(404, "Invite not found")
+
+    now = datetime.utcnow().isoformat()
+    await db.meeting_invites.update_one(
+        {"meeting_id": meeting_id, "attendee_id": uid},
+        {"$set": {"response": req.response, "responded_at": now}}
+    )
+
+    # Update meeting attendees status
+    await db.meetings.update_one(
+        {"meeting_id": meeting_id},
+        {"$addToSet": {f"attendee_responses.{uid}": req.response}}
+    )
+
+    return {"ok": True, "response": req.response}
+
+@router.get("/meetings/{meeting_id}/invites")
+async def get_meeting_invites(meeting_id: str, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    invites = await db.meeting_invites.find({"meeting_id": meeting_id}, {"_id": 0}).to_list(100)
+    return {"invites": invites}
+
+@router.post("/meetings/{meeting_id}/board-items")
+async def create_board_item(meeting_id: str, req: MeetingBoardItemRequest, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    item = {
+        "item_id": "item_" + secrets.token_hex(6),
+        "meeting_id": meeting_id,
+        "title": req.title,
+        "description": req.description,
+        "status": req.status,
+        "created_by": current_user["user_id"],
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    await db.meeting_board_items.insert_one(item)
+    item.pop("_id", None)
+    return {"item": item}
+
+@router.put("/meetings/{meeting_id}/board-items/{item_id}")
+async def update_board_item(meeting_id: str, item_id: str, req: MeetingBoardItemRequest, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    await db.meeting_board_items.update_one(
+        {"item_id": item_id, "meeting_id": meeting_id},
+        {"$set": {"status": req.status, "title": req.title, "description": req.description}}
+    )
+    return {"ok": True}
+
+@router.post("/meetings/{meeting_id}/documents")
+async def upload_meeting_document(meeting_id: str, req: UploadMeetingDocumentRequest, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    doc = {
+        "doc_id": "doc_" + secrets.token_hex(6),
+        "meeting_id": meeting_id,
+        "file_name": req.file_name,
+        "file_url": req.file_url,
+        "uploaded_by": current_user["user_id"],
+        "uploaded_by_name": current_user["name"],
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    await db.meeting_documents.insert_one(doc)
+    doc.pop("_id", None)
+    return {"document": doc}
+
+@router.get("/meetings/{meeting_id}/documents")
+async def get_meeting_documents(meeting_id: str, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    docs = await db.meeting_documents.find({"meeting_id": meeting_id}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    return {"documents": docs}
+
+@router.post("/meetings/{meeting_id}/minutes")
+async def add_meeting_minute(meeting_id: str, req: AddMeetingMinuteRequest, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    minute = {
+        "minute_id": "min_" + secrets.token_hex(6),
+        "meeting_id": meeting_id,
+        "content": req.content,
+        "submitted_by": req.submitted_by or current_user["user_id"],
+        "submitted_by_name": current_user["name"],
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    await db.meeting_minutes.insert_one(minute)
+    minute.pop("_id", None)
+    return {"minute": minute}
+
+@router.get("/meetings/{meeting_id}/minutes")
+async def get_meeting_minutes(meeting_id: str, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    minutes = await db.meeting_minutes.find({"meeting_id": meeting_id}, {"_id": 0}).sort("created_at", 1).to_list(100)
+    return {"minutes": minutes}
+
+@router.post("/meetings/{meeting_id}/minutes/consolidate")
+async def consolidate_meeting_minutes(meeting_id: str, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    meeting = await db.meetings.find_one({"meeting_id": meeting_id})
+    if not meeting:
+        raise HTTPException(404, "Meeting not found")
+
+    minutes = await db.meeting_minutes.find({"meeting_id": meeting_id}, {"_id": 0}).to_list(100)
+    if not minutes:
+        return {"consolidated": ""}
+
+    # Use AI to consolidate minutes
+    from services.ai import chat_completion
+    minutes_text = "\n".join([f"- {m['content']}" for m in minutes])
+    prompt = f"""Consolidate the following meeting minutes into a clear, professional summary:
+
+{minutes_text}
+
+Provide a concise summary with key points, decisions, and action items."""
+
+    consolidated = await chat_completion([{"role": "user", "content": prompt}])
+
+    # Save consolidated minutes
+    await db.meetings.update_one(
+        {"meeting_id": meeting_id},
+        {"$set": {"consolidated_minutes": consolidated, "consolidated_at": datetime.utcnow().isoformat()}}
+    )
+
+    return {"consolidated": consolidated}
+
+# ── Meeting Chat ─────────────────────────────────────────────────────────────
+
+@router.post("/meetings/{meeting_id}/chat")
+async def send_meeting_message(meeting_id: str, content: str, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    msg = {
+        "msg_id": "mmsg_" + secrets.token_hex(6),
+        "meeting_id": meeting_id,
+        "from_id": current_user["user_id"],
+        "from_name": current_user["name"],
+        "content": content,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    await db.meeting_messages.insert_one(msg)
+    msg.pop("_id", None)
+    return {"message": msg}
+
+@router.get("/meetings/{meeting_id}/chat")
+async def get_meeting_chat(meeting_id: str, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    messages = await db.meeting_messages.find({"meeting_id": meeting_id}, {"_id": 0}).sort("created_at", 1).to_list(100)
+    return {"messages": messages}
 
 # ── Tasks ────────────────────────────────────────────────────────────────────
 
