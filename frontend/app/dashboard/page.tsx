@@ -53,11 +53,11 @@ export default function DashboardPage() {
 
         <div className="flex items-center gap-3">
           {/* Credits */}
-          <div className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-xl text-sm">
-            <span className="text-amber-600 font-medium">{user.credits} Aipps</span>
+          <Link href="/aipps" className="flex items-center gap-2 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-xl text-sm hover:bg-amber-100 transition-colors">
+            <span className="text-amber-600 font-medium">⚡ {user.credits} Aipps</span>
             <span className="text-slate-400">|</span>
-            <button className="text-amber-600 font-medium hover:text-amber-700 text-xs">Buy</button>
-          </div>
+            <span className="text-amber-600 font-medium text-xs">Buy</span>
+          </Link>
 
           {/* Notifications */}
           <button className="relative w-9 h-9 flex items-center justify-center rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition-colors text-slate-600">
