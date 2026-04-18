@@ -10,7 +10,7 @@ def get_client() -> AsyncGroq:
     return _client
 
 MODEL = "llama-3.3-70b-versatile"
-FAST_MODEL = "llama3-8b-8192"
+FAST_MODEL = "llama-3.1-8b-instant"
 
 async def chat_completion(messages: list, model: str = MODEL, max_tokens: int = 2048) -> str:
     client = get_client()

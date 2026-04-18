@@ -15,11 +15,10 @@ export default function DocumentsPage() {
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState('');
   const [asking, setAsking] = useState(false);
+  const [error, setError] = useState('');
   const h = { Authorization: `Bearer ${token}` };
 
-  useEffect(() => {
-    if (token) loadDocs();
-  }, [token]);
+  useEffect(() => { if (token) loadDocs(); }, [token]);
 
   const loadDocs = async () => {
     const r = await axios.get(`${API}/api/smart-office/documents`, { headers: h });
@@ -30,22 +29,32 @@ export default function DocumentsPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
+    setError('');
     try {
       const fd = new FormData();
       fd.append('file', file);
-      const r = await axios.post(`${API}/api/smart-office/documents/upload`, fd, { headers: { ...h, 'Content-Type': 'multipart/form-data' } });
-      setSelected(r.data);
+      const r = await axios.post(`${API}/api/smart-office/documents/upload`, fd, {
+        headers: { ...h, 'Content-Type': 'multipart/form-data' }
+      });
       await loadDocs();
-    } catch { alert('Upload failed'); }
-    finally { setUploading(false); e.target.value = ''; }
+      const allDocs = await axios.get(`${API}/api/smart-office/documents`, { headers: h });
+      const fresh = (allDocs.data.documents || []).find((d: Doc) => d.file_id === r.data.file_id);
+      if (fresh) setSelected(fresh);
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || e?.message || 'Upload failed');
+    } finally { setUploading(false); e.target.value = ''; }
   };
 
   const ask = async () => {
     if (!selected || !question.trim()) return;
     setAsking(true);
+    setError('');
     try {
-      const r = await axios.post(`${API}/api/smart-office/documents/query`, { file_id: selected.file_id, question }, { headers: h });
+      const r = await axios.post(`${API}/api/smart-office/documents/query`,
+        { file_id: selected.file_id, question }, { headers: h });
       setAnswer(r.data.answer);
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || e?.message || 'Query failed');
     } finally { setAsking(false); }
   };
 
@@ -58,31 +67,47 @@ export default function DocumentsPage() {
   return (
     <div className="p-6 max-w-5xl">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">Documents</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Documents</h1>
+          <p className="text-slate-500 text-sm mt-1">Upload PDFs or text files — AI analyses and answers questions</p>
+        </div>
         <label className="px-4 py-2 bg-violet-600 text-white rounded-xl text-sm font-medium hover:bg-violet-700 cursor-pointer">
           {uploading ? 'Uploading...' : '+ Upload'}
-          <input type="file" className="hidden" accept=".pdf,.txt,.docx" onChange={upload} disabled={uploading} />
+          <input type="file" className="hidden" accept=".pdf,.txt,.docx,.md,.csv" onChange={upload} disabled={uploading} />
         </label>
       </div>
+
+      {error && (
+        <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-6">
         <div className="col-span-1 space-y-2">
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">My Documents ({docs.length})</p>
           {docs.map(doc => (
             <div key={doc.file_id}
-              onClick={() => { setSelected(doc); setAnswer(''); setQuestion(''); }}
+              onClick={() => { setSelected(doc); setAnswer(''); setQuestion(''); setError(''); }}
               className={`p-3 rounded-xl border cursor-pointer transition-all ${selected?.file_id === doc.file_id ? 'bg-violet-50 border-violet-200' : 'bg-white border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-slate-800 truncate">{doc.filename}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">{(doc.size / 1024).toFixed(1)} KB</p>
+                  <p className="text-xs text-slate-400 mt-0.5">{(doc.size / 1024).toFixed(1)} KB · {new Date(doc.created_at).toLocaleDateString()}</p>
                 </div>
                 <button onClick={e => { e.stopPropagation(); deleteDoc(doc.file_id); }}
-                  className="text-slate-300 hover:text-red-500 text-xs px-1">x</button>
+                  className="text-slate-300 hover:text-red-500 text-sm leading-none px-1 mt-0.5">×</button>
               </div>
             </div>
           ))}
-          {docs.length === 0 && !uploading && <p className="text-slate-400 text-sm text-center py-8">No documents yet</p>}
+          {docs.length === 0 && !uploading && (
+            <div className="text-center py-8">
+              <div className="text-3xl mb-2">📄</div>
+              <p className="text-slate-400 text-sm">No documents yet</p>
+              <p className="text-slate-300 text-xs mt-1">Upload a PDF or text file</p>
+            </div>
+          )}
+          {uploading && <p className="text-violet-600 text-sm text-center py-4">Uploading & analysing...</p>}
         </div>
 
         <div className="col-span-2">
@@ -99,15 +124,16 @@ export default function DocumentsPage() {
               <div className="space-y-3">
                 <p className="text-sm font-medium text-slate-700">Ask a question about this document</p>
                 <textarea value={question} onChange={e => setQuestion(e.target.value)}
-                  placeholder="What is the main topic? Summarize key points..."
+                  placeholder="e.g. What are the key recommendations? Summarise section 2."
                   rows={2}
                   className="w-full px-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-violet-400 resize-none" />
                 <button onClick={ask} disabled={asking || !question.trim()}
                   className="px-4 py-2 bg-violet-600 text-white rounded-xl text-sm font-medium hover:bg-violet-700 disabled:opacity-50">
-                  {asking ? 'Thinking...' : 'Ask'}
+                  {asking ? 'Thinking...' : 'Ask AI'}
                 </button>
                 {answer && (
                   <div className="bg-violet-50 border border-violet-100 rounded-xl p-4">
+                    <p className="text-xs font-semibold text-violet-700 mb-2">Answer</p>
                     <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-wrap">{answer}</p>
                   </div>
                 )}
@@ -117,7 +143,7 @@ export default function DocumentsPage() {
             <div className="flex items-center justify-center h-64 bg-white border border-slate-200 rounded-2xl">
               <div className="text-center">
                 <div className="text-4xl mb-3">📄</div>
-                <p className="text-slate-500 text-sm">Select a document to view and query it</p>
+                <p className="text-slate-500 text-sm">Upload a document or select one to analyse it</p>
               </div>
             </div>
           )}

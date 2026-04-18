@@ -12,6 +12,7 @@ const LANGS = [
   { code: 'Spanish', name: 'Spanish' }, { code: 'French', name: 'French' },
   { code: 'Portuguese', name: 'Portuguese' }, { code: 'German', name: 'German' },
   { code: 'Chinese', name: 'Chinese' }, { code: 'Arabic', name: 'Arabic' },
+  { code: 'Hindi', name: 'Hindi' }, { code: 'Swahili', name: 'Swahili' },
 ];
 
 export default function TranslatePage() {
@@ -21,17 +22,21 @@ export default function TranslatePage() {
   const [targetLang, setTargetLang] = useState('Zulu');
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState('');
 
   const translate = async () => {
     if (!source.trim()) return;
     setLoading(true);
+    setError('');
+    setTranslated('');
     try {
       const r = await axios.post(`${API}/api/smart-office/translate`,
         { text: source, target_language: targetLang },
         { headers: { Authorization: `Bearer ${token}` } });
       setTranslated(r.data.translated);
-    } catch { alert('Translation failed'); }
-    finally { setLoading(false); }
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || e?.message || 'Translation failed');
+    } finally { setLoading(false); }
   };
 
   const copy = () => {
@@ -44,7 +49,7 @@ export default function TranslatePage() {
     <div className="p-6 max-w-4xl">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-900">Translate</h1>
-        <p className="text-slate-500 text-sm mt-1">AI-powered translation via Groq</p>
+        <p className="text-slate-500 text-sm mt-1">AI-powered translation (Groq / Llama)</p>
       </div>
 
       <div className="mb-4 flex items-center gap-3">
@@ -54,6 +59,12 @@ export default function TranslatePage() {
           {LANGS.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
         </select>
       </div>
+
+      {error && (
+        <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-4 mb-4">
         <div>

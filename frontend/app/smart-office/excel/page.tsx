@@ -15,6 +15,7 @@ export default function ExcelPage() {
   const [answer, setAnswer] = useState('');
   const [uploading, setUploading] = useState(false);
   const [asking, setAsking] = useState(false);
+  const [error, setError] = useState('');
   const h = { Authorization: `Bearer ${token}` };
 
   useEffect(() => { if (token) loadFiles(); }, [token]);
@@ -28,6 +29,7 @@ export default function ExcelPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploading(true);
+    setError('');
     try {
       const fd = new FormData();
       fd.append('file', file);
@@ -38,23 +40,28 @@ export default function ExcelPage() {
       const fresh = await axios.get(`${API}/api/smart-office/excel/files`, { headers: h });
       const f = (fresh.data.files || []).find((x: XFile) => x.file_id === r.data.file_id);
       if (f) setSelected(f);
-    } catch { alert('Upload failed'); }
-    finally { setUploading(false); e.target.value = ''; }
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || e?.message || 'Upload failed');
+    } finally { setUploading(false); e.target.value = ''; }
   };
 
   const ask = async () => {
     if (!selected || !question.trim()) return;
     setAsking(true);
+    setError('');
     try {
-      const r = await axios.post(`${API}/api/smart-office/excel/query`, { file_id: selected.file_id, question }, { headers: h });
+      const r = await axios.post(`${API}/api/smart-office/excel/query`,
+        { file_id: selected.file_id, question }, { headers: h });
       setAnswer(r.data.answer);
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || e?.message || 'Query failed');
     } finally { setAsking(false); }
   };
 
   const suggestions = [
     'What is the total revenue?', 'Show the top 5 entries by value',
-    'What are the column headers?', 'Find any errors or anomalies',
-    'Calculate the average', 'Compare values across rows',
+    'What are the column headers?', 'Find any anomalies or errors',
+    'Calculate the average', 'Which row has the highest value?',
   ];
 
   return (
@@ -62,7 +69,7 @@ export default function ExcelPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Excel / Spreadsheet AI</h1>
-          <p className="text-slate-500 text-sm mt-1">Ask questions about your spreadsheets</p>
+          <p className="text-slate-500 text-sm mt-1">Upload a spreadsheet and ask questions in plain English</p>
         </div>
         <label className="px-4 py-2 bg-violet-600 text-white rounded-xl text-sm font-medium hover:bg-violet-700 cursor-pointer">
           {uploading ? 'Uploading...' : '+ Upload'}
@@ -70,23 +77,36 @@ export default function ExcelPage() {
         </label>
       </div>
 
+      {error && (
+        <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+          {error}
+        </div>
+      )}
+
       <div className="grid grid-cols-3 gap-6">
         <div>
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Files ({files.length})</p>
           {files.map(f => (
-            <div key={f.file_id} onClick={() => { setSelected(f); setAnswer(''); setQuestion(''); }}
+            <div key={f.file_id} onClick={() => { setSelected(f); setAnswer(''); setQuestion(''); setError(''); }}
               className={`p-3 rounded-xl border cursor-pointer mb-2 transition-all ${selected?.file_id === f.file_id ? 'bg-violet-50 border-violet-200' : 'bg-white border-slate-200 hover:border-slate-300'}`}>
               <p className="text-sm font-medium text-slate-800 truncate">{f.filename}</p>
-              <p className="text-xs text-slate-400 mt-0.5">{f.sheet_count} sheets</p>
+              <p className="text-xs text-slate-400 mt-0.5">{f.sheet_count} sheet(s) · {new Date(f.created_at).toLocaleDateString()}</p>
             </div>
           ))}
-          {files.length === 0 && !uploading && <p className="text-slate-400 text-sm text-center py-8">No files yet</p>}
+          {files.length === 0 && !uploading && (
+            <div className="text-center py-8">
+              <div className="text-3xl mb-2">📊</div>
+              <p className="text-slate-400 text-sm">No spreadsheets yet</p>
+            </div>
+          )}
+          {uploading && <p className="text-violet-600 text-sm text-center py-4">Parsing spreadsheet...</p>}
         </div>
 
         <div className="col-span-2">
           {selected ? (
             <div className="bg-white border border-slate-200 rounded-2xl p-6">
-              <p className="font-semibold text-slate-800 mb-4">{selected.filename}</p>
+              <p className="font-semibold text-slate-800 mb-1">{selected.filename}</p>
+              <p className="text-xs text-slate-400 mb-4">{selected.sheet_count} sheet(s)</p>
 
               <div className="mb-4">
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Quick Questions</p>
@@ -101,12 +121,12 @@ export default function ExcelPage() {
               </div>
 
               <textarea value={question} onChange={e => setQuestion(e.target.value)}
-                placeholder="Ask anything about your data..."
+                placeholder="Ask anything about your data in plain English..."
                 rows={3}
                 className="w-full px-4 py-3 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-violet-400 resize-none mb-3" />
               <button onClick={ask} disabled={asking || !question.trim()}
                 className="px-4 py-2 bg-violet-600 text-white rounded-xl text-sm font-medium hover:bg-violet-700 disabled:opacity-50">
-                {asking ? 'Analyzing...' : 'Ask AI'}
+                {asking ? 'Analysing...' : 'Ask AI'}
               </button>
 
               {answer && (
@@ -120,7 +140,7 @@ export default function ExcelPage() {
             <div className="flex items-center justify-center h-64 bg-white border border-slate-200 rounded-2xl">
               <div className="text-center">
                 <div className="text-4xl mb-3">📊</div>
-                <p className="text-slate-500 text-sm">Upload a spreadsheet and ask questions about it</p>
+                <p className="text-slate-500 text-sm">Upload a .xlsx or .csv file to get started</p>
               </div>
             </div>
           )}

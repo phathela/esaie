@@ -11,22 +11,30 @@ export default function TranscribePage() {
   const [recording, setRecording] = useState(false);
   const [transcription, setTranscription] = useState('');
   const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
   const [language, setLanguage] = useState('en');
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
 
   const startRecording = async () => {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const mr = new MediaRecorder(stream);
-    mediaRecorderRef.current = mr;
-    chunksRef.current = [];
-    mr.ondataavailable = e => chunksRef.current.push(e.data);
-    mr.onstop = () => {
-      const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
-      setFile(new File([blob], 'recording.webm', { type: 'audio/webm' }));
-    };
-    mr.start();
-    setRecording(true);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mr = new MediaRecorder(stream);
+      mediaRecorderRef.current = mr;
+      chunksRef.current = [];
+      mr.ondataavailable = e => chunksRef.current.push(e.data);
+      mr.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        setFile(new File([blob], 'recording.webm', { type: 'audio/webm' }));
+        setStatus('Recording saved. Click Transcribe.');
+      };
+      mr.start();
+      setRecording(true);
+      setStatus('Recording...');
+    } catch {
+      setError('Microphone access denied');
+    }
   };
 
   const stopRecording = () => {
@@ -38,21 +46,32 @@ export default function TranscribePage() {
   const transcribe = async () => {
     if (!file) return;
     setLoading(true);
+    setError('');
+    setTranscription('');
+    setStatus('Uploading audio...');
     try {
       const fd = new FormData();
       fd.append('file', file);
       fd.append('language', language);
+      setStatus('Processing with AssemblyAI — this may take 30–60 seconds...');
       const r = await axios.post(`${API}/api/smart-office/transcribe`, fd, {
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' }
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' },
+        timeout: 300000,
       });
-      setTranscription(r.data.text || r.data.transcription || JSON.stringify(r.data));
-    } catch { alert('Transcription failed'); }
-    finally { setLoading(false); }
+      if (r.data.status === 'error') {
+        setError(`Transcription error: ${r.data.error}`);
+      } else {
+        setTranscription(r.data.text || '(No speech detected)');
+        setStatus('Done!');
+      }
+    } catch (e: any) {
+      setError(e?.response?.data?.detail || e?.message || 'Transcription failed');
+    } finally { setLoading(false); }
   };
 
   const download = () => {
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([transcription]));
+    a.href = URL.createObjectURL(new Blob([transcription], { type: 'text/plain' }));
     a.download = 'transcription.txt';
     a.click();
   };
@@ -61,16 +80,22 @@ export default function TranscribePage() {
     <div className="p-6 max-w-3xl">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-900">Transcribe</h1>
-        <p className="text-slate-500 text-sm mt-1">Convert audio to text via AssemblyAI</p>
+        <p className="text-slate-500 text-sm mt-1">Convert audio to text via AssemblyAI — supports 60+ languages</p>
       </div>
+
+      {error && (
+        <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-4 mb-4">
         <div className="bg-white border border-slate-200 rounded-2xl p-5">
           <p className="font-medium text-slate-800 mb-3">Upload Audio / Video</p>
-          <label className="flex flex-col items-center justify-center h-32 border-2 border-dashed border-slate-200 rounded-xl cursor-pointer hover:border-violet-300 transition-colors">
+          <label className={`flex flex-col items-center justify-center h-32 border-2 border-dashed rounded-xl cursor-pointer transition-colors ${file ? 'border-violet-300 bg-violet-50' : 'border-slate-200 hover:border-violet-300'}`}>
             <span className="text-3xl mb-2">🎵</span>
-            <span className="text-sm text-slate-500">{file ? file.name : 'Click to upload'}</span>
-            <input type="file" className="hidden" accept="audio/*,video/*" onChange={e => setFile(e.target.files?.[0] || null)} />
+            <span className="text-sm text-slate-500 text-center px-2">{file ? file.name : 'Click to upload audio or video'}</span>
+            <input type="file" className="hidden" accept="audio/*,video/*" onChange={e => { setFile(e.target.files?.[0] || null); setStatus(''); }} />
           </label>
         </div>
 
@@ -83,7 +108,7 @@ export default function TranscribePage() {
                   <span className="text-2xl">🎙️</span>
                 </div>
                 <button onClick={stopRecording}
-                  className="px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-medium">Stop Recording</button>
+                  className="px-4 py-2 bg-red-600 text-white rounded-xl text-sm font-medium">Stop</button>
               </>
             ) : (
               <>
@@ -109,6 +134,9 @@ export default function TranscribePage() {
           <option value="es">Spanish</option>
           <option value="de">German</option>
           <option value="zh">Chinese</option>
+          <option value="ar">Arabic</option>
+          <option value="hi">Hindi</option>
+          <option value="sw">Swahili</option>
         </select>
         <button onClick={transcribe} disabled={loading || !file}
           className="px-5 py-2 bg-violet-600 text-white rounded-xl text-sm font-medium hover:bg-violet-700 disabled:opacity-50">
@@ -116,11 +144,17 @@ export default function TranscribePage() {
         </button>
       </div>
 
+      {status && !error && (
+        <div className="mb-4 px-4 py-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-700">
+          {status}
+        </div>
+      )}
+
       {transcription && (
         <div className="bg-white border border-slate-200 rounded-2xl p-5">
           <div className="flex items-center justify-between mb-3">
             <p className="font-medium text-slate-800">Transcription</p>
-            <button onClick={download} className="text-xs text-violet-600 hover:text-violet-700">Download</button>
+            <button onClick={download} className="text-xs text-violet-600 hover:text-violet-700 font-medium">Download .txt</button>
           </div>
           <div className="bg-slate-50 rounded-xl p-4 max-h-64 overflow-y-auto">
             <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{transcription}</p>

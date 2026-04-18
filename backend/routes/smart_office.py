@@ -27,8 +27,11 @@ class DocumentQueryRequest(BaseModel):
 
 @router.post("/translate")
 async def translate(req: TranslateRequest, current_user: dict = Depends(get_current_user)):
-    result = await translate_text(req.text, req.target_language)
-    return {"translated": result, "source": req.text, "target_language": req.target_language}
+    try:
+        result = await translate_text(req.text, req.target_language)
+        return {"translated": result, "source": req.text, "target_language": req.target_language}
+    except Exception as e:
+        raise HTTPException(502, f"Translation service error: {str(e)}")
 
 # ── Documents ─────────────────────────────────────────────────────────────────
 
@@ -38,42 +41,53 @@ async def upload_document(
     current_user: dict = Depends(get_current_user),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
-    content = await file.read()
-    text_content = ""
+    try:
+        content = await file.read()
+        text_content = ""
 
-    if file.filename.endswith(".pdf"):
-        try:
-            import PyPDF2
-            reader = PyPDF2.PdfReader(io.BytesIO(content))
-            text_content = "\n".join(page.extract_text() or "" for page in reader.pages)
-        except Exception:
+        if file.filename and file.filename.endswith(".pdf"):
+            try:
+                import PyPDF2
+                reader = PyPDF2.PdfReader(io.BytesIO(content))
+                text_content = "\n".join(page.extract_text() or "" for page in reader.pages)
+            except Exception:
+                text_content = content.decode("utf-8", errors="ignore")
+        else:
             text_content = content.decode("utf-8", errors="ignore")
-    else:
-        text_content = content.decode("utf-8", errors="ignore")
 
-    analysis = await analyze_document(text_content)
-    file_id = "doc_" + secrets.token_hex(6)
-    doc = {
-        "file_id": file_id,
-        "filename": file.filename,
-        "owner_id": current_user["user_id"],
-        "content": text_content[:50000],
-        "analysis": analysis,
-        "size": len(content),
-        "created_at": datetime.utcnow().isoformat(),
-    }
-    await db.documents.insert_one(doc)
-    doc.pop("_id", None)
-    doc.pop("content", None)
-    return {"file_id": file_id, "filename": file.filename, "analysis": analysis}
+        if not text_content.strip():
+            raise HTTPException(400, "Could not extract text from document")
+
+        analysis = await analyze_document(text_content)
+        file_id = "doc_" + secrets.token_hex(6)
+        doc = {
+            "file_id": file_id,
+            "filename": file.filename,
+            "owner_id": current_user["user_id"],
+            "content": text_content[:50000],
+            "analysis": analysis,
+            "size": len(content),
+            "created_at": datetime.utcnow().isoformat(),
+        }
+        await db.documents.insert_one(doc)
+        doc.pop("_id", None)
+        doc.pop("content", None)
+        return {"file_id": file_id, "filename": file.filename, "analysis": analysis}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f"Document processing error: {str(e)}")
 
 @router.post("/documents/query")
 async def query_document(req: DocumentQueryRequest, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
     doc = await db.documents.find_one({"file_id": req.file_id, "owner_id": current_user["user_id"]})
     if not doc:
         raise HTTPException(404, "Document not found")
-    answer = await analyze_document(doc["content"], req.question)
-    return {"answer": answer, "question": req.question}
+    try:
+        answer = await analyze_document(doc["content"], req.question)
+        return {"answer": answer, "question": req.question}
+    except Exception as e:
+        raise HTTPException(502, f"AI query error: {str(e)}")
 
 @router.get("/documents")
 async def list_documents(current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
@@ -94,46 +108,52 @@ async def upload_excel(
     current_user: dict = Depends(get_current_user),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
-    import openpyxl
-    content = await file.read()
-    wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
-    sheets_data = {}
-    for sheet_name in wb.sheetnames:
-        ws = wb[sheet_name]
-        rows = []
-        for row in ws.iter_rows(max_row=200, values_only=True):
-            if any(cell is not None for cell in row):
-                rows.append([str(c) if c is not None else "" for c in row])
-        sheets_data[sheet_name] = rows
+    try:
+        import openpyxl
+        content = await file.read()
+        wb = openpyxl.load_workbook(io.BytesIO(content), data_only=True)
+        sheets_data = {}
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            rows = []
+            for row in ws.iter_rows(max_row=200, values_only=True):
+                if any(cell is not None for cell in row):
+                    rows.append([str(c) if c is not None else "" for c in row])
+            sheets_data[sheet_name] = rows
 
-    summary_lines = []
-    for sheet, rows in sheets_data.items():
-        summary_lines.append(f"Sheet: {sheet} ({len(rows)} rows)")
-        if rows:
-            summary_lines.append("Headers: " + ", ".join(rows[0]))
-            summary_lines.append("Sample (first 5 rows):")
-            for r in rows[1:6]:
-                summary_lines.append("  " + " | ".join(r))
+        summary_lines = []
+        for sheet, rows in sheets_data.items():
+            summary_lines.append(f"Sheet: {sheet} ({len(rows)} rows)")
+            if rows:
+                summary_lines.append("Headers: " + ", ".join(rows[0]))
+                summary_lines.append("Sample (first 5 rows):")
+                for r in rows[1:6]:
+                    summary_lines.append("  " + " | ".join(r))
 
-    data_summary = "\n".join(summary_lines)
-    file_id = "xl_" + secrets.token_hex(6)
-    await db.excel_files.insert_one({
-        "file_id": file_id,
-        "filename": file.filename,
-        "owner_id": current_user["user_id"],
-        "data_summary": data_summary,
-        "sheet_count": len(wb.sheetnames),
-        "created_at": datetime.utcnow().isoformat(),
-    })
-    return {"file_id": file_id, "filename": file.filename, "sheets": list(wb.sheetnames), "summary": data_summary[:500]}
+        data_summary = "\n".join(summary_lines)
+        file_id = "xl_" + secrets.token_hex(6)
+        await db.excel_files.insert_one({
+            "file_id": file_id,
+            "filename": file.filename,
+            "owner_id": current_user["user_id"],
+            "data_summary": data_summary,
+            "sheet_count": len(wb.sheetnames),
+            "created_at": datetime.utcnow().isoformat(),
+        })
+        return {"file_id": file_id, "filename": file.filename, "sheets": list(wb.sheetnames), "summary": data_summary[:500]}
+    except Exception as e:
+        raise HTTPException(502, f"Excel processing error: {str(e)}")
 
 @router.post("/excel/query")
 async def query_excel(req: ExcelQueryRequest, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
     xfile = await db.excel_files.find_one({"file_id": req.file_id, "owner_id": current_user["user_id"]})
     if not xfile:
         raise HTTPException(404, "File not found")
-    answer = await excel_nlq(xfile["data_summary"], req.question)
-    return {"answer": answer, "question": req.question}
+    try:
+        answer = await excel_nlq(xfile["data_summary"], req.question)
+        return {"answer": answer, "question": req.question}
+    except Exception as e:
+        raise HTTPException(502, f"AI query error: {str(e)}")
 
 @router.get("/excel/files")
 async def list_excel_files(current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
@@ -149,10 +169,19 @@ async def transcribe_audio(
     language: str = Form(default="en"),
     current_user: dict = Depends(get_current_user)
 ):
-    content = await file.read()
-    audio_url = await upload_audio(content)
-    result = await transcribe_url(audio_url, language_code=language)
-    return result
+    try:
+        content = await file.read()
+        if not content:
+            raise HTTPException(400, "Empty audio file")
+        audio_url = await upload_audio(content)
+        result = await transcribe_url(audio_url, language_code=language)
+        if result.get("status") == "error":
+            raise HTTPException(502, f"Transcription failed: {result.get('error', 'Unknown error')}")
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(502, f"Transcription service error: {str(e)}")
 
 # ── Smart Files ───────────────────────────────────────────────────────────────
 
