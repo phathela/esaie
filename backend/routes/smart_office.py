@@ -45,6 +45,18 @@ class CreateFolderRequest(BaseModel):
     name: str
     parent_id: Optional[str] = None
 
+class AdvancedReportRequest(BaseModel):
+    file_id: str
+    report_type: str
+    title: str
+    description: str = ""
+    requested_for: Optional[str] = None
+
+class ApproveReportRequest(BaseModel):
+    report_id: str
+    approved: bool
+    feedback: str = ""
+
 # ── Translate ────────────────────────────────────────────────────────────────
 
 @router.post("/translate")
@@ -508,3 +520,127 @@ async def list_files(current_user: dict = Depends(get_current_user), db: AsyncIO
         x["type"] = "excel"
     all_files = sorted(docs + xls, key=lambda f: f.get("created_at", ""), reverse=True)
     return {"files": all_files}
+
+# ── Advanced Reports (with Approval Workflow) ────────────────────────────────
+
+@router.post("/advanced-reports/create")
+async def create_advanced_report(req: AdvancedReportRequest, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Create a report with approval workflow"""
+    doc = await db.documents.find_one({"file_id": req.file_id})
+    if not doc:
+        raise HTTPException(404, "Document not found")
+
+    try:
+        # Generate report
+        report_content = await generate_document_report(doc.get("content", ""), req.report_type)
+
+        report = {
+            "report_id": "rpt_" + secrets.token_hex(6),
+            "file_id": req.file_id,
+            "filename": doc.get("filename"),
+            "report_type": req.report_type,
+            "title": req.title,
+            "description": req.description,
+            "content": report_content,
+            "created_by": current_user["user_id"],
+            "created_by_name": current_user["name"],
+            "requested_for": req.requested_for,
+            "status": "pending",  # pending, approved, rejected
+            "created_at": datetime.utcnow().isoformat(),
+            "approved_at": None,
+            "approved_by": None,
+            "approval_feedback": "",
+        }
+        await db.advanced_reports.insert_one(report)
+        report.pop("_id", None)
+        return {"report": report}
+    except Exception as e:
+        raise HTTPException(502, f"Report generation error: {str(e)}")
+
+@router.get("/advanced-reports")
+async def get_advanced_reports(current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Get all reports (created by user or requested for user)"""
+    uid = current_user["user_id"]
+    reports = await db.advanced_reports.find(
+        {"$or": [{"created_by": uid}, {"requested_for": uid}]},
+        {"_id": 0, "content": 0}
+    ).sort("created_at", -1).to_list(100)
+    return {"reports": reports}
+
+@router.get("/advanced-reports/{report_id}")
+async def get_report_detail(report_id: str, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Get full report content"""
+    report = await db.advanced_reports.find_one({"report_id": report_id}, {"_id": 0})
+    if not report:
+        raise HTTPException(404, "Report not found")
+    return {"report": report}
+
+@router.post("/advanced-reports/{report_id}/approve")
+async def approve_report(report_id: str, req: ApproveReportRequest, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Approve or reject a report"""
+    report = await db.advanced_reports.find_one({"report_id": report_id})
+    if not report:
+        raise HTTPException(404, "Report not found")
+
+    status = "approved" if req.approved else "rejected"
+    now = datetime.utcnow().isoformat()
+
+    await db.advanced_reports.update_one(
+        {"report_id": report_id},
+        {"$set": {
+            "status": status,
+            "approved_by": current_user["user_id"],
+            "approved_by_name": current_user["name"],
+            "approval_feedback": req.feedback,
+            "approved_at": now
+        }}
+    )
+
+    # Log the approval action
+    await db.report_approvals.insert_one({
+        "approval_id": "app_" + secrets.token_hex(6),
+        "report_id": report_id,
+        "approver_id": current_user["user_id"],
+        "approver_name": current_user["name"],
+        "action": "approved" if req.approved else "rejected",
+        "feedback": req.feedback,
+        "created_at": now,
+    })
+
+    return {"ok": True, "status": status}
+
+@router.get("/advanced-reports/{report_id}/approvals")
+async def get_report_approvals(report_id: str, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Get approval history for a report"""
+    approvals = await db.report_approvals.find({"report_id": report_id}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    return {"approvals": approvals}
+
+@router.get("/advanced-reports/pending/approvals")
+async def get_pending_approvals(current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Get reports pending user's approval"""
+    reports = await db.advanced_reports.find(
+        {"requested_for": current_user["user_id"], "status": "pending"},
+        {"_id": 0, "content": 0}
+    ).sort("created_at", -1).to_list(50)
+    return {"pending_reports": reports}
+
+@router.delete("/advanced-reports/{report_id}")
+async def delete_report(report_id: str, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Delete a report (only by creator or admin)"""
+    report = await db.advanced_reports.find_one({"report_id": report_id})
+    if not report or report["created_by"] != current_user["user_id"]:
+        raise HTTPException(403, "Cannot delete this report")
+
+    await db.advanced_reports.delete_one({"report_id": report_id})
+    await db.report_approvals.delete_many({"report_id": report_id})
+    return {"ok": True}
+
+@router.get("/advanced-reports/export/{report_id}")
+async def export_report(report_id: str, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Export report as text/JSON"""
+    report = await db.advanced_reports.find_one({"report_id": report_id}, {"_id": 0})
+    if not report:
+        raise HTTPException(404, "Report not found")
+
+    # Return as JSON for download
+    return {"report": report}
