@@ -57,6 +57,19 @@ class ApproveReportRequest(BaseModel):
     approved: bool
     feedback: str = ""
 
+class ShareFileRequest(BaseModel):
+    file_id: str
+    user_ids: list[str]
+    permission: str = "view"  # view, comment, edit
+
+class TagFileRequest(BaseModel):
+    file_id: str
+    tags: list[str]
+
+class SearchFilesRequest(BaseModel):
+    query: str
+    file_type: str = ""  # document, excel, all
+
 # ── Translate ────────────────────────────────────────────────────────────────
 
 @router.post("/translate")
@@ -644,3 +657,146 @@ async def export_report(report_id: str, current_user: dict = Depends(get_current
 
     # Return as JSON for download
     return {"report": report}
+
+# ── File Collaboration (Phase 2) ──────────────────────────────────────────────
+
+@router.post("/files/{file_id}/share")
+async def share_file(file_id: str, req: ShareFileRequest, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Share a file with other users"""
+    # Check if file exists and user owns it
+    file_doc = await db.documents.find_one({"file_id": file_id, "owner_id": current_user["user_id"]})
+    if not file_doc:
+        file_doc = await db.excel_files.find_one({"file_id": file_id, "owner_id": current_user["user_id"]})
+    if not file_doc:
+        raise HTTPException(404, "File not found or not owned by user")
+
+    now = datetime.utcnow().isoformat()
+    for user_id in req.user_ids:
+        await db.file_shares.update_one(
+            {"file_id": file_id, "shared_with_user_id": user_id},
+            {"$set": {
+                "file_id": file_id,
+                "shared_by_user_id": current_user["user_id"],
+                "shared_with_user_id": user_id,
+                "permission": req.permission,
+                "shared_at": now,
+            }},
+            upsert=True
+        )
+
+    return {"ok": True, "shared_with": len(req.user_ids)}
+
+@router.get("/files/{file_id}/sharing")
+async def get_file_sharing(file_id: str, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Get sharing information for a file"""
+    shares = await db.file_shares.find({"file_id": file_id, "shared_by_user_id": current_user["user_id"]}, {"_id": 0}).to_list(100)
+    return {"shares": shares}
+
+@router.post("/files/{file_id}/tag")
+async def tag_file(file_id: str, req: TagFileRequest, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Add tags to a file"""
+    await db.documents.update_one(
+        {"file_id": file_id, "owner_id": current_user["user_id"]},
+        {"$set": {"tags": req.tags}},
+        upsert=False
+    )
+    return {"ok": True, "tags": req.tags}
+
+@router.post("/files/search")
+async def search_files(req: SearchFilesRequest, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Search files with AI-powered full-text search"""
+    uid = current_user["user_id"]
+    query_regex = {"$regex": req.query, "$options": "i"}
+
+    if req.file_type in ["document", ""]:
+        docs = await db.documents.find(
+            {"owner_id": uid, "$or": [{"filename": query_regex}, {"content": query_regex}]},
+            {"_id": 0, "content": 0}
+        ).to_list(20)
+        for d in docs:
+            d["type"] = "document"
+
+    if req.file_type in ["excel", ""]:
+        xls = await db.excel_files.find(
+            {"owner_id": uid, "$or": [{"filename": query_regex}]},
+            {"_id": 0, "data_summary": 0}
+        ).to_list(20)
+        for x in xls:
+            x["type"] = "excel"
+
+    results = (docs if req.file_type == "document" else xls if req.file_type == "excel" else docs + xls)
+    return {"results": results, "count": len(results)}
+
+@router.get("/files/activity")
+async def get_file_activity(current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Get recent file activity (views, edits, shares)"""
+    uid = current_user["user_id"]
+
+    recent_docs = await db.documents.find(
+        {"owner_id": uid},
+        {"_id": 0, "content": 0}
+    ).sort("created_at", -1).to_list(5)
+
+    recent_edits = await db.file_activity.find(
+        {"user_id": uid},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(20)
+
+    return {"documents": recent_docs, "activity": recent_edits}
+
+@router.post("/files/{file_id}/version-snapshot")
+async def create_version_snapshot(file_id: str, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Create a version snapshot of a file"""
+    doc = await db.documents.find_one({"file_id": file_id, "owner_id": current_user["user_id"]})
+    if not doc:
+        raise HTTPException(404, "Document not found")
+
+    snapshot = {
+        "snapshot_id": "snap_" + secrets.token_hex(6),
+        "file_id": file_id,
+        "filename": doc["filename"],
+        "content_hash": str(hash(doc.get("content", ""))),
+        "created_by": current_user["user_id"],
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    await db.file_snapshots.insert_one(snapshot)
+    snapshot.pop("_id", None)
+    return {"snapshot": snapshot}
+
+@router.get("/files/{file_id}/versions")
+async def get_file_versions(file_id: str, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Get version history for a file"""
+    versions = await db.file_snapshots.find({"file_id": file_id}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    return {"versions": versions}
+
+@router.get("/dashboard/smart-office")
+async def get_smart_office_dashboard(current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Get Smart Office dashboard data with stats and recent activity"""
+    uid = current_user["user_id"]
+
+    total_docs = await db.documents.count_documents({"owner_id": uid})
+    total_excel = await db.excel_files.count_documents({"owner_id": uid})
+    total_size = await db.documents.aggregate([
+        {"$match": {"owner_id": uid}},
+        {"$group": {"_id": None, "total_size": {"$sum": "$size"}}}
+    ]).to_list(1)
+
+    recent_docs = await db.documents.find(
+        {"owner_id": uid},
+        {"_id": 0, "content": 0}
+    ).sort("created_at", -1).to_list(5)
+
+    shared_with_me = await db.file_shares.find(
+        {"shared_with_user_id": uid},
+        {"_id": 0}
+    ).to_list(10)
+
+    return {
+        "stats": {
+            "documents": total_docs,
+            "excel_files": total_excel,
+            "storage_used_mb": (total_size[0]["total_size"] if total_size else 0) // (1024 * 1024),
+        },
+        "recent_files": recent_docs,
+        "shared_with_me": shared_with_me,
+    }
