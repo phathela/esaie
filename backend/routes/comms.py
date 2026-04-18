@@ -278,9 +278,12 @@ async def ai_pal_chat(req: AIPalMessageRequest, current_user: dict = Depends(get
 async def notifications_summary(current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
     uid = current_user["user_id"]
     unread_msgs = await db.messages.count_documents({"to_id": uid, "read": False})
-    pending_meetings = await db.meetings.count_documents({"attendees": uid, "status": "scheduled"})
+    my_groups = await db.groups.find({"members": uid}, {"group_id": 1}).to_list(200)
+    group_ids = [g["group_id"] for g in my_groups]
+    unread_group = await db.group_messages.count_documents({"group_id": {"$in": group_ids}, "from_id": {"$ne": uid}}) if group_ids else 0
+    upcoming_meetings = await db.meetings.count_documents({"attendees": uid, "status": "scheduled"})
     pending_tasks = await db.tasks.count_documents({"assigned_to": uid, "status": "todo"})
-    return {"unread_messages": unread_msgs, "pending_meetings": pending_meetings, "pending_tasks": pending_tasks}
+    return {"unread_messages": unread_msgs, "unread_group_messages": unread_group, "upcoming_meetings": upcoming_meetings, "pending_tasks": pending_tasks}
 
 @router.get("/notifications/unread-count")
 async def unread_count(current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):

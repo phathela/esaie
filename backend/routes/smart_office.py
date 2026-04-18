@@ -25,14 +25,14 @@ class DocumentQueryRequest(BaseModel):
 
 # ── Translate ────────────────────────────────────────────────────────────────
 
-@router.post("/smart-office/translate")
+@router.post("/translate")
 async def translate(req: TranslateRequest, current_user: dict = Depends(get_current_user)):
     result = await translate_text(req.text, req.target_language)
     return {"translated": result, "source": req.text, "target_language": req.target_language}
 
 # ── Documents ─────────────────────────────────────────────────────────────────
 
-@router.post("/smart-office/documents/upload")
+@router.post("/documents/upload")
 async def upload_document(
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
@@ -67,7 +67,7 @@ async def upload_document(
     doc.pop("content", None)
     return {"file_id": file_id, "filename": file.filename, "analysis": analysis}
 
-@router.post("/smart-office/documents/query")
+@router.post("/documents/query")
 async def query_document(req: DocumentQueryRequest, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
     doc = await db.documents.find_one({"file_id": req.file_id, "owner_id": current_user["user_id"]})
     if not doc:
@@ -75,20 +75,20 @@ async def query_document(req: DocumentQueryRequest, current_user: dict = Depends
     answer = await analyze_document(doc["content"], req.question)
     return {"answer": answer, "question": req.question}
 
-@router.get("/smart-office/documents")
+@router.get("/documents")
 async def list_documents(current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
     cursor = db.documents.find({"owner_id": current_user["user_id"]}, {"_id": 0, "content": 0}).sort("created_at", -1)
     docs = await cursor.to_list(100)
     return {"documents": docs}
 
-@router.delete("/smart-office/documents/{file_id}")
+@router.delete("/documents/{file_id}")
 async def delete_document(file_id: str, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
     await db.documents.delete_one({"file_id": file_id, "owner_id": current_user["user_id"]})
     return {"ok": True}
 
 # ── Excel NLQ ─────────────────────────────────────────────────────────────────
 
-@router.post("/smart-office/excel/upload")
+@router.post("/excel/upload")
 async def upload_excel(
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
@@ -127,7 +127,7 @@ async def upload_excel(
     })
     return {"file_id": file_id, "filename": file.filename, "sheets": list(wb.sheetnames), "summary": data_summary[:500]}
 
-@router.post("/smart-office/excel/query")
+@router.post("/excel/query")
 async def query_excel(req: ExcelQueryRequest, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
     xfile = await db.excel_files.find_one({"file_id": req.file_id, "owner_id": current_user["user_id"]})
     if not xfile:
@@ -135,7 +135,7 @@ async def query_excel(req: ExcelQueryRequest, current_user: dict = Depends(get_c
     answer = await excel_nlq(xfile["data_summary"], req.question)
     return {"answer": answer, "question": req.question}
 
-@router.get("/smart-office/excel/files")
+@router.get("/excel/files")
 async def list_excel_files(current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
     cursor = db.excel_files.find({"owner_id": current_user["user_id"]}, {"_id": 0, "data_summary": 0}).sort("created_at", -1)
     files = await cursor.to_list(50)
@@ -143,7 +143,7 @@ async def list_excel_files(current_user: dict = Depends(get_current_user), db: A
 
 # ── Transcribe ────────────────────────────────────────────────────────────────
 
-@router.post("/smart-office/transcribe")
+@router.post("/transcribe")
 async def transcribe_audio(
     file: UploadFile = File(...),
     language: str = Form(default="en"),
@@ -156,7 +156,7 @@ async def transcribe_audio(
 
 # ── Smart Files ───────────────────────────────────────────────────────────────
 
-@router.get("/smart-office/files/list")
+@router.get("/files/list")
 async def list_files(current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
     uid = current_user["user_id"]
     docs_cursor = db.documents.find({"owner_id": uid}, {"_id": 0, "content": 0}).sort("created_at", -1).limit(20)

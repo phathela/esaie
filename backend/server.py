@@ -56,7 +56,7 @@ from routes.innovation import router as innovation_router
 
 app.include_router(auth_router, prefix="/api/auth", tags=["auth"])
 app.include_router(comms_router, prefix="/api/comms", tags=["comms"])
-app.include_router(smart_office_router, prefix="/api", tags=["smart-office"])
+app.include_router(smart_office_router, prefix="/api/smart-office", tags=["smart-office"])
 app.include_router(alerts_router, prefix="/api/alerts", tags=["alerts"])
 app.include_router(rewards_router, prefix="/api/rewards", tags=["rewards"])
 app.include_router(hr_router, prefix="/api/hr", tags=["hr"])

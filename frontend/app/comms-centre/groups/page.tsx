@@ -5,7 +5,7 @@ import axios from 'axios';
 
 const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
 
-interface Group { group_id: string; name: string; description: string; member_count: number; }
+interface Group { group_id: string; name: string; description: string; members: string[]; }
 interface GMessage { message_id: string; from_id: string; from_name: string; content: string; created_at: string; }
 
 export default function GroupsPage() {
@@ -78,7 +78,7 @@ export default function GroupsPage() {
                 </div>
                 <div>
                   <p className="text-sm font-medium text-slate-800">{g.name}</p>
-                  <p className="text-xs text-slate-500">{g.member_count} members</p>
+                  <p className="text-xs text-slate-500">{g.members?.length || 0} members</p>
                 </div>
               </div>
             </button>

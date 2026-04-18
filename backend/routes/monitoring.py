@@ -57,10 +57,14 @@ async def get_lpr_events(current_user: dict = Depends(get_current_user), db: Asy
     cursor = db.lpr_events.find({}, {"_id": 0}).sort("created_at", -1).limit(100)
     return {"events": await cursor.to_list(100)}
 
+class WatchlistRequest(BaseModel):
+    plate: str
+    reason: str = ""
+
 @router.post("/lpr/watchlist")
-async def add_watchlist(plate: str, reason: str = "", current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
-    await db.lpr_watchlist.update_one({"plate": plate.upper()},
-        {"$set": {"plate": plate.upper(), "reason": reason, "added_by": current_user["user_id"]}}, upsert=True)
+async def add_watchlist(req: WatchlistRequest, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    await db.lpr_watchlist.update_one({"plate": req.plate.upper()},
+        {"$set": {"plate": req.plate.upper(), "reason": req.reason, "added_by": current_user["user_id"]}}, upsert=True)
     return {"ok": True}
 
 @router.get("/lpr/watchlist")
@@ -68,7 +72,7 @@ async def get_watchlist(current_user: dict = Depends(get_current_user), db: Asyn
     cursor = db.lpr_watchlist.find({}, {"_id": 0})
     return {"watchlist": await cursor.to_list(200)}
 
-@router.get("/v2/lpr/analytics")
+@router.get("/lpr/analytics")
 async def lpr_analytics(current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
     total = await db.lpr_events.count_documents({})
     flagged = await db.lpr_events.count_documents({"flagged": True})
