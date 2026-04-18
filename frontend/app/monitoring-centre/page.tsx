@@ -12,7 +12,12 @@ export default function MonitoringPage() {
   const { token } = useAuth();
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [events, setEvents] = useState<LPREvent[]>([]);
-  const [tab, setTab] = useState<'cameras' | 'lpr' | 'watchlist'>('cameras');
+  const [tab, setTab] = useState<'overview' | 'cameras' | 'lpr' | 'watchlist' | 'ptz' | 'recordings' | 'alerts'>('overview');
+  const [dashboard, setDashboard] = useState<any>(null);
+  const [selectedCamera, setSelectedCamera] = useState<string | null>(null);
+  const [ptzCommand, setPtzCommand] = useState('pan_left');
+  const [recordings, setRecordings] = useState<any[]>([]);
+  const [alerts, setAlerts] = useState<any[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [lprForm, setLprForm] = useState({ camera_id: '', plate: '' });
   const [watchPlate, setWatchPlate] = useState('');
@@ -24,6 +29,9 @@ export default function MonitoringPage() {
     if (!token) return;
     loadCameras();
     loadLPR();
+    loadDashboard();
+    loadRecordings();
+    loadAlerts();
   }, [token]);
 
   const loadCameras = async () => {
@@ -65,6 +73,61 @@ export default function MonitoringPage() {
     alert('Plate added to watchlist');
   };
 
+  const loadDashboard = async () => {
+    try {
+      const r = await axios.get(`${API}/api/monitoring/dashboard`, { headers: h });
+      setDashboard(r.data);
+    } catch (e) {
+      console.error('Failed to load dashboard');
+    }
+  };
+
+  const loadRecordings = async () => {
+    try {
+      const r = await axios.get(`${API}/api/monitoring/recordings`, { headers: h });
+      setRecordings(r.data.recordings || []);
+    } catch (e) {
+      console.error('Failed to load recordings');
+    }
+  };
+
+  const loadAlerts = async () => {
+    try {
+      const r = await axios.get(`${API}/api/monitoring/alerts`, { headers: h });
+      setAlerts(r.data.alerts || []);
+    } catch (e) {
+      console.error('Failed to load alerts');
+    }
+  };
+
+  const sendPTZCommand = async (camera_id: string) => {
+    try {
+      await axios.post(`${API}/api/monitoring/cameras/${camera_id}/ptz`,
+        { command: ptzCommand, duration_seconds: 1 }, { headers: h });
+    } catch (e) {
+      console.error('Failed to send PTZ command');
+    }
+  };
+
+  const startRecording = async (camera_id: string) => {
+    try {
+      await axios.post(`${API}/api/monitoring/cameras/${camera_id}/recordings`,
+        { duration_minutes: 60, description: 'Manual recording' }, { headers: h });
+      await loadRecordings();
+    } catch (e) {
+      console.error('Failed to start recording');
+    }
+  };
+
+  const acknowledgeAlert = async (alert_id: string) => {
+    try {
+      await axios.post(`${API}/api/monitoring/alerts/${alert_id}/acknowledge`, {}, { headers: h });
+      await loadAlerts();
+    } catch (e) {
+      console.error('Failed to acknowledge alert');
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50">
       <div className="max-w-5xl mx-auto p-6">
@@ -103,14 +166,49 @@ export default function MonitoringPage() {
           </div>
         )}
 
-        <div className="flex gap-2 mb-6">
-          {(['cameras', 'lpr', 'watchlist'] as const).map(t => (
+        <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
+          {(['overview', 'cameras', 'lpr', 'watchlist', 'ptz', 'recordings', 'alerts'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)}
-              className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors capitalize ${tab === t ? 'bg-slate-800 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}>
-              {t === 'cameras' ? `Cameras (${cameras.length})` : t === 'lpr' ? `LPR Events (${events.length})` : 'Watchlist'}
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${tab === t ? 'bg-red-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}`}>
+              {t === 'overview' ? '📊 Overview' : t === 'cameras' ? `📹 Cameras` : t === 'lpr' ? `🚗 LPR` : t === 'watchlist' ? '⚠️ Watchlist' : t === 'ptz' ? '🎮 PTZ' : t === 'recordings' ? '🎥 Recordings' : '🚨 Alerts'}
             </button>
           ))}
         </div>
+
+        {tab === 'overview' && dashboard && (
+          <div>
+            <div className="grid grid-cols-4 gap-4 mb-6">
+              <div className="bg-white border border-slate-200 rounded-2xl p-5">
+                <p className="text-sm text-slate-600 mb-2">Total Cameras</p>
+                <p className="text-3xl font-bold text-slate-900">{dashboard.cameras.total}</p>
+                <p className="text-xs text-green-600 mt-2">✓ {dashboard.cameras.online} online</p>
+              </div>
+              <div className="bg-white border border-slate-200 rounded-2xl p-5">
+                <p className="text-sm text-slate-600 mb-2">Active Recordings</p>
+                <p className="text-3xl font-bold text-red-600">{dashboard.recordings.active}</p>
+              </div>
+              <div className="bg-white border border-slate-200 rounded-2xl p-5">
+                <p className="text-sm text-slate-600 mb-2">Unacknowledged Alerts</p>
+                <p className="text-3xl font-bold text-orange-600">{dashboard.alerts.unacknowledged}</p>
+              </div>
+              <div className="bg-white border border-slate-200 rounded-2xl p-5">
+                <p className="text-sm text-slate-600 mb-2">LPR Events</p>
+                <p className="text-3xl font-bold text-slate-900">{events.length}</p>
+              </div>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-2xl p-5">
+              <h3 className="font-medium text-slate-800 mb-4">Recent Alerts</h3>
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {dashboard.alerts.recent?.slice(0, 5).map((a: any) => (
+                  <div key={a.alert_id} className="bg-red-50 border border-red-200 rounded p-3">
+                    <p className="font-medium text-slate-900 text-sm">{a.rule_name}</p>
+                    <p className="text-xs text-slate-600">{new Date(a.created_at).toLocaleString()}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {tab === 'cameras' && (
           <div className="grid grid-cols-2 gap-4">
@@ -194,6 +292,93 @@ export default function MonitoringPage() {
               </div>
             </div>
             <p className="text-sm text-slate-500 text-center py-4">Plates on the watchlist will trigger alerts when detected by LPR cameras.</p>
+          </div>
+        )}
+
+        {tab === 'ptz' && (
+          <div>
+            <p className="text-sm text-slate-600 mb-4">Select a PTZ-enabled camera to control pan, tilt, and zoom</p>
+            <div className="grid grid-cols-2 gap-4">
+              {cameras.filter(c => c.type === 'ptz').map(c => (
+                <div key={c.camera_id} className={`bg-white border-2 rounded-2xl p-5 cursor-pointer transition-colors ${selectedCamera === c.camera_id ? 'border-red-600' : 'border-slate-200 hover:border-red-300'}`}
+                  onClick={() => setSelectedCamera(c.camera_id)}>
+                  <p className="font-semibold text-slate-800">{c.name}</p>
+                  <p className="text-sm text-slate-600">{c.location}</p>
+                  {selectedCamera === c.camera_id && (
+                    <div className="mt-4 space-y-3 bg-slate-50 p-4 rounded-lg">
+                      <select value={ptzCommand} onChange={e => setPtzCommand(e.target.value)}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none">
+                        <option value="pan_left">← Pan Left</option>
+                        <option value="pan_right">Pan Right →</option>
+                        <option value="tilt_up">⬆ Tilt Up</option>
+                        <option value="tilt_down">⬇ Tilt Down</option>
+                        <option value="zoom_in">🔍 Zoom In</option>
+                        <option value="zoom_out">🔍 Zoom Out</option>
+                      </select>
+                      <button onClick={() => sendPTZCommand(c.camera_id)}
+                        className="w-full px-4 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700">Execute</button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            {cameras.filter(c => c.type === 'ptz').length === 0 && (
+              <p className="text-slate-500 text-center py-8">No PTZ cameras available</p>
+            )}
+          </div>
+        )}
+
+        {tab === 'recordings' && (
+          <div>
+            <div className="mb-6">
+              <h3 className="font-semibold text-slate-800 mb-4">Start Recording</h3>
+              <div className="grid grid-cols-2 gap-4 mb-6">
+                {cameras.map(c => (
+                  <button key={c.camera_id} onClick={() => startRecording(c.camera_id)}
+                    className="px-4 py-3 bg-orange-600 text-white rounded-lg font-medium hover:bg-orange-700 transition-colors">
+                    🎥 {c.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <h3 className="font-semibold text-slate-800 mb-4">Active & Past Recordings ({recordings.length})</h3>
+              <div className="space-y-2 max-h-96 overflow-y-auto">
+                {recordings.map(r => (
+                  <div key={r.recording_id} className="bg-white border border-slate-200 rounded-lg p-4 flex items-center justify-between">
+                    <div>
+                      <p className="font-medium text-slate-900">{r.duration_minutes} min · {new Date(r.started_at).toLocaleString()}</p>
+                      <p className={`text-xs mt-1 ${r.status === 'recording' ? 'text-red-600' : 'text-green-600'}`}>{r.status}</p>
+                    </div>
+                    <a href={r.file_url} target="_blank" rel="noreferrer"
+                      className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700">Download</a>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab === 'alerts' && (
+          <div>
+            <h3 className="font-semibold text-slate-800 mb-4">Alert History ({alerts.length})</h3>
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {alerts.slice(0, 100).map(a => (
+                <div key={a.alert_id} className={`border-l-4 rounded-lg p-4 ${a.acknowledged ? 'bg-slate-50 border-slate-400' : 'bg-red-50 border-red-600'}`}>
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="font-medium text-slate-900">{a.rule_name}</p>
+                      <p className="text-sm text-slate-600">{a.message}</p>
+                      <p className="text-xs text-slate-500 mt-1">{new Date(a.created_at).toLocaleString()}</p>
+                    </div>
+                    {!a.acknowledged && (
+                      <button onClick={() => acknowledgeAlert(a.alert_id)}
+                        className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700">Ack</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
