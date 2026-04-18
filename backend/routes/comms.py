@@ -67,6 +67,9 @@ class AIPalMessageRequest(BaseModel):
     message: str
     history: list = []
 
+class CallNoteRequest(BaseModel):
+    notes: str
+
 # ── WebSocket ────────────────────────────────────────────────────────────────
 
 @router.websocket("/ws/{user_id}")
@@ -411,6 +414,67 @@ async def send_meeting_message(meeting_id: str, content: str, current_user: dict
 async def get_meeting_chat(meeting_id: str, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
     messages = await db.meeting_messages.find({"meeting_id": meeting_id}, {"_id": 0}).sort("created_at", 1).to_list(100)
     return {"messages": messages}
+
+# ── Call Management ────────────────────────────────────────────────────────────
+
+@router.get("/calls/history")
+async def get_call_history(current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Get user's call history"""
+    uid = current_user["user_id"]
+    calls = await db.call_records.find(
+        {"$or": [{"initiator_id": uid}, {"participants": uid}]},
+        {"_id": 0}
+    ).sort("started_at", -1).to_list(100)
+    return {"calls": calls}
+
+@router.get("/calls/{call_id}")
+async def get_call_detail(call_id: str, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Get call details including recording and transcription"""
+    call = await db.call_records.find_one({"call_id": call_id}, {"_id": 0})
+    if not call:
+        raise HTTPException(404, "Call not found")
+    return {"call": call}
+
+@router.post("/calls/{call_id}/notes")
+async def save_call_notes(call_id: str, req: CallNoteRequest, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Save notes for a call"""
+    await db.call_records.update_one(
+        {"call_id": call_id},
+        {"$set": {"notes": req.notes, "notes_updated_at": datetime.utcnow().isoformat()}}
+    )
+    return {"ok": True}
+
+@router.post("/calls/{call_id}/end")
+async def end_call(call_id: str, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    """End a call and save metrics"""
+    now = datetime.utcnow().isoformat()
+    await db.call_records.update_one(
+        {"call_id": call_id},
+        {"$set": {"ended_at": now}}
+    )
+    return {"ok": True}
+
+@router.get("/calls-analytics")
+async def get_calls_analytics(current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    """Get call analytics for current user"""
+    uid = current_user["user_id"]
+
+    total_calls = await db.call_records.count_documents(
+        {"$or": [{"initiator_id": uid}, {"participants": uid}]}
+    )
+
+    total_duration = await db.call_records.aggregate([
+        {"$match": {"$or": [{"initiator_id": uid}, {"participants": uid}]}},
+        {"$group": {"_id": None, "total": {"$sum": "$duration_minutes"}}}
+    ]).to_list(1)
+
+    return {
+        "analytics": {
+            "total_calls": total_calls,
+            "total_duration_minutes": (total_duration[0]["total"] if total_duration else 0),
+            "average_duration": (total_duration[0]["total"] / total_calls if total_duration and total_calls else 0),
+        }
+    }
 
 # ── Tasks ────────────────────────────────────────────────────────────────────
 
