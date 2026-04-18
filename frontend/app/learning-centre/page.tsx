@@ -13,7 +13,11 @@ interface Course {
   category: string;
   difficulty: string;
   duration_hours: number;
-  enrolled: boolean;
+  enrolled?: boolean;
+  enrollment?: {
+    progress: number;
+    modules_completed: string[];
+  };
 }
 
 export default function LearningCentre() {
