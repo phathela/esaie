@@ -9,9 +9,9 @@ const HUBS = [
   { title: 'Comms Centre', desc: 'Chat, groups, meetings, tasks, calls, AI pals.', href: '/comms-centre/chat', color: 'violet', icon: '💬' },
   { title: 'Human Centre', desc: 'Organogram, positions, members, performance.', href: '/hr-hub/human-centre', color: 'emerald', icon: '👥' },
   { title: 'Monitoring Centre', desc: 'Live cameras, AI analytics, LPR, alerts.', href: '/monitoring-centre', color: 'red', icon: '📹' },
-  { title: 'Learning Centre', desc: 'Courses, modules, progress tracking.', href: '/learning', color: 'amber', icon: '📚' },
-  { title: 'Innovation Centre', desc: 'Submit ideas, track pipeline, innovation bot.', href: '/innovation-centre', color: 'purple', icon: '💡' },
-  { title: 'Knowledge Hub', desc: 'SOPs, forms, templates, document repository.', href: '/knowledge', color: 'cyan', icon: '🧠' },
+  { title: 'Learning Centre', desc: 'Courses, modules, progress tracking.', href: '/learning-centre', color: 'blue', icon: '📚' },
+  { title: 'Innovation Centre', desc: 'Submit ideas, track pipeline, innovation bot.', href: '/innovation-centre', color: 'green', icon: '💡' },
+  { title: 'Knowledge Hub', desc: 'SOPs, forms, templates, document repository.', href: '/knowledge-hub', color: 'purple', icon: '📖' },
   { title: 'Alerts Hub', desc: 'Breaking news, weather, traffic, security alerts.', href: '/alerts', color: 'blue', icon: '🔔' },
   { title: 'Rewards Centre', desc: 'Aipps balance, competitions, offers, history.', href: '/rewards', color: 'amber', icon: '🏆' },
 ];
@@ -25,6 +25,7 @@ const COLOR_MAP: Record<string, string> = {
   purple: 'border-purple-200 hover:border-purple-400',
   cyan: 'border-cyan-200 hover:border-cyan-400',
   blue: 'border-blue-200 hover:border-blue-400',
+  green: 'border-green-200 hover:border-green-400',
 };
 
 export default function DashboardPage() {

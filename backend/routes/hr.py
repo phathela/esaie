@@ -88,3 +88,98 @@ async def hr_chat(req: HRChatRequest, current_user: dict = Depends(get_current_u
 @router.get("/organization/levels")
 async def get_levels(current_user: dict = Depends(get_current_user)):
     return {"levels": ["DG", "DDG", "DIR", "DDIR", "MGR", "ANL", "OFF"]}
+
+# ── Goals & Development ────────────────────────────────────────────────────
+
+class GoalRequest(BaseModel):
+    staff_id: str
+    title: str
+    description: str
+    target_date: str
+    priority: str = "medium"
+
+@router.post("/goals")
+async def create_goal(req: GoalRequest, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    goal = {
+        "goal_id": "goal_" + secrets.token_hex(6),
+        "staff_id": req.staff_id,
+        "title": req.title,
+        "description": req.description,
+        "target_date": req.target_date,
+        "priority": req.priority,
+        "status": "active",
+        "progress": 0,
+        "created_by": current_user["user_id"],
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    await db.goals.insert_one(goal)
+    goal.pop("_id", None)
+    return {"goal": goal}
+
+@router.get("/goals/{staff_id}")
+async def get_staff_goals(staff_id: str, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    goals = await db.goals.find({"staff_id": staff_id}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    return {"goals": goals}
+
+@router.put("/goals/{goal_id}")
+async def update_goal(goal_id: str, status: str = "", progress: int = None, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    update = {}
+    if status:
+        update["status"] = status
+    if progress is not None:
+        update["progress"] = progress
+    await db.goals.update_one({"goal_id": goal_id}, {"$set": update})
+    return {"ok": True}
+
+# ── Performance Reviews ────────────────────────────────────────────────────
+
+class PerformanceReviewRequest(BaseModel):
+    staff_id: str
+    rating: float  # 1-5
+    feedback: str
+    period: str = ""
+
+@router.post("/reviews")
+async def create_review(req: PerformanceReviewRequest, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    review = {
+        "review_id": "rev_" + secrets.token_hex(6),
+        "staff_id": req.staff_id,
+        "rating": min(5, max(1, req.rating)),
+        "feedback": req.feedback,
+        "period": req.period,
+        "reviewed_by": current_user["user_id"],
+        "reviewed_by_name": current_user["name"],
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    await db.performance_reviews.insert_one(review)
+    review.pop("_id", None)
+    return {"review": review}
+
+@router.get("/reviews/{staff_id}")
+async def get_staff_reviews(staff_id: str, current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    reviews = await db.performance_reviews.find({"staff_id": staff_id}, {"_id": 0}).sort("created_at", -1).to_list(50)
+    avg_rating = sum(r["rating"] for r in reviews) / len(reviews) if reviews else 0
+    return {"reviews": reviews, "average_rating": round(avg_rating, 2), "total_reviews": len(reviews)}
+
+# ── HR Dashboard ────────────────────────────────────────────────────────────
+
+@router.get("/dashboard")
+async def get_hr_dashboard(current_user: dict = Depends(get_current_user), db: AsyncIOMotorDatabase = Depends(get_db)):
+    total_staff = await db.staff.count_documents({})
+    departments_count = await db.staff.aggregate([
+        {"$group": {"_id": "$department", "count": {"$sum": 1}}}
+    ]).to_list(100)
+
+    recent_reviews = await db.performance_reviews.find({}, {"_id": 0}).sort("created_at", -1).to_list(5)
+    active_goals = await db.goals.count_documents({"status": "active"})
+
+    return {
+        "stats": {
+            "total_staff": total_staff,
+            "departments": len(departments_count),
+            "active_goals": active_goals,
+            "recent_reviews": len(recent_reviews),
+        },
+        "departments": departments_count,
+        "recent_reviews": recent_reviews,
+    }
